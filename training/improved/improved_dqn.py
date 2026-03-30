@@ -282,7 +282,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.smoke_test:
-        run_experiment(IMPROVED_DQN_CONFIGS[0], total_timesteps=3_000, seed=42)
+        run_experiment(IMPROVED_DQN_CONFIGS[0], timesteps=3_000, seed=42)
         print("  ✓ Smoke test passed"); sys.exit(0)
 
     configs = IMPROVED_DQN_CONFIGS if args.run is None else [IMPROVED_DQN_CONFIGS[args.run - 1]]

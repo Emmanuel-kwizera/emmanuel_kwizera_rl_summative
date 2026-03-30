@@ -1,0 +1,6 @@
+run_id,description,learning_rate,buffer_size,learning_starts,batch_size,gamma,exploration_fraction,exploration_final_eps,gradient_steps,train_freq,total_timesteps,mean_reward,std_reward,train_time_min
+1,"Conservative warmup — lr=1e-4, buf=100k, starts=8k, grad_steps=2",0.0001,100000,8000,64,0.99,0.3,0.02,2,4,400000,-325.55,113.38,4.42
+2,"Aggressive learning — lr=1e-4, grad_steps=4, train_freq=1, buf=100k",0.0001,100000,5000,64,0.99,0.25,0.02,4,1,400000,-320.9,102.16,24.64
+3,"Long exploration — lr=1e-4, expl=0.45, buf=100k, starts=8k",0.0001,100000,8000,64,0.99,0.45,0.03,2,4,400000,-319.3,100.84,3.88
+4,"Large buffer — lr=5e-5, buf=200k, starts=15k, grad_steps=2",5e-05,200000,15000,64,0.99,0.35,0.02,2,4,400000,-315.0,96.08,3.81
+5,"Best combo — lr=1e-4, buf=100k, batch=32, grad_steps=4, expl=0.30",0.0001,100000,5000,32,0.99,0.3,0.02,4,1,400000,-336.35,111.98,22.53
