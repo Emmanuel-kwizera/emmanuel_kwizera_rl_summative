@@ -425,7 +425,8 @@ if __name__ == "__main__":
     parser.add_argument("--run",        type=int, default=None,
                         help="Run a single experiment (1-10). Omit to run all.")
     parser.add_argument("--timesteps",  type=int, default=TOTAL_TIMESTEPS,
-                        help=f"Timesteps per run (default: {TOTAL_TIMESTEPS})")    parser.add_argument("--seed",       type=int, default=42)
+                        help=f"Timesteps per run (default: {TOTAL_TIMESTEPS})")
+    parser.add_argument("--seed",       type=int, default=42)
     parser.add_argument("--smoke-test", action="store_true",
                         help="Quick 2000-step test to verify everything loads")
     parser.add_argument("--no-tensorboard", action="store_true")
