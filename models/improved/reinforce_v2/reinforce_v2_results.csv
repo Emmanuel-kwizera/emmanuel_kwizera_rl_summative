@@ -1,0 +1,6 @@
+run_id,description,learning_rate,gamma,hidden_dim,entropy_coef,batch_episodes,reward_clip,normalize,easy_env,reward_shaping,total_episodes,mean_reward,std_reward,train_time_min
+1,"Easy env + batch=16 — lr=1e-3, hidden=128, ent=0.01",0.001,0.99,128,0.01,16,50.0,True,True,True,4000,-165.07,126.19,0.64
+2,"Strong entropy — lr=1e-3, hidden=128, ent=0.05, batch=8",0.001,0.99,128,0.05,8,50.0,True,True,True,4000,-228.33,95.53,0.65
+3,"Low LR stable — lr=3e-4, hidden=128, ent=0.01, batch=16",0.0003,0.99,128,0.01,16,50.0,True,True,True,4000,-119.33,106.27,0.64
+4,"Larger net — lr=1e-3, hidden=256, ent=0.01, batch=8",0.001,0.99,256,0.01,8,50.0,True,True,True,4000,-220.67,127.62,0.77
+5,"Best combo — lr=8e-4, hidden=128, ent=0.02, batch=16",0.0008,0.99,128,0.02,16,50.0,True,True,True,4000,-187.6,126.07,0.64
