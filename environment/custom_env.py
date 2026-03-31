@@ -153,10 +153,16 @@ class CropDroneEnv(gym.Env):
         infected_slots = available[:self.n_infected]
         at_risk_slots  = available[self.n_infected: at_risk_count]
 
-        for r, c in infected_slots:
+        for i, (r, c) in enumerate(infected_slots):
             disease = FUNGAL if rng.random() < 0.6 else PEST
             self.hidden_disease[r, c] = disease
-            self.grid[r, c] = AT_RISK   # visible as at-risk (sensor flag)
+            self.scanned[r, c] = True
+            # First half revealed immediately (visible purple/red)
+            # Second half hidden as AT_RISK (yellow) — partial observability
+            if i < self.n_infected // 2:
+                self.grid[r, c] = disease
+            else:
+                self.grid[r, c] = AT_RISK
 
         for r, c in at_risk_slots:
             self.grid[r, c] = AT_RISK

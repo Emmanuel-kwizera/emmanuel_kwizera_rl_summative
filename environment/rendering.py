@@ -91,6 +91,34 @@ class FarmRenderer:
         # Event log lines: list of (text, colour, age)
         self.log_lines  = []
 
+        # ── Pre-bake sky gradient once (big perf fix) ──
+        # Drawing 330 lines per frame was killing render speed.
+        self._sky_surface = pygame.Surface((self.WINDOW_W, self.WINDOW_H // 2))
+        for i in range(self.WINDOW_H // 2):
+            t_val = i / (self.WINDOW_H // 2)
+            r_val = int(26 + (90 - 26) * t_val)
+            g_val = int(42 + (154 - 42) * t_val)
+            b_val = int(58 + (191 - 58) * t_val)
+            pygame.draw.line(self._sky_surface, (r_val, g_val, b_val),
+                             (0, i), (self.WINDOW_W, i))
+
+        # ── Pre-compute plant position offsets per cell ──
+        # Random offsets were recalculated every frame → flickering.
+        # Now computed once at init and stored.
+        rng = np.random.default_rng(seed=99)
+        self._plant_offsets = {}   # (row, col) → list of (ox, oy, seed)
+        for row in range(grid_size):
+            for col in range(grid_size):
+                num_plants = 2
+                offsets = []
+                for p in range(num_plants):
+                    ox = int((p - num_plants / 2 + 0.5) * 22 +
+                             rng.integers(-6, 7))
+                    oy = int(rng.integers(0, 12))
+                    seed = col * 17 + row * 31 + p * 7
+                    offsets.append((ox, oy, seed))
+                self._plant_offsets[(row, col)] = offsets
+
     # ──────────────────────────────────────────────
     # COORDINATE HELPERS
     # ──────────────────────────────────────────────
@@ -238,31 +266,39 @@ class FarmRenderer:
             surface.blit(glow_surf, (cx - 18, cy - 4))
 
         elif state == TREATED:
-            stem_col  = (28, 108, 64)
-            leaf_cols = [(42, 130, 78), (55, 155, 90)]
-            stem_h    = 26
+            # Bright teal recovered plant — clearly different from healthy
+            stem_col = (20, 160, 90)
+            stem_h   = 26
             pygame.draw.line(surface, stem_col,
-                             (cx, cy), (int(cx + sway), cy - stem_h), 2)
+                             (cx, cy), (int(cx + sway), cy - stem_h), 3)
+            leaf_cols = [(42, 180, 100), (60, 210, 120)]
             for i, angle in enumerate([0.5, -0.5, 0.4, -0.4]):
-                lx = int(cx + math.cos(angle) * 12 + sway * 0.3)
+                lx = int(cx + math.cos(angle) * 13 + sway * 0.3)
                 ly = cy - 8 - i * 5
                 lc = leaf_cols[i % 2]
-                pygame.draw.ellipse(surface, lc, (lx - 8, ly - 4, 16, 9))
-            # Subtle green pulse ring
-            pulse2 = 0.35 + 0.25 * math.sin(t * 0.08)
-            ring_surf2 = pygame.Surface((44, 22), pygame.SRCALPHA)
-            pygame.draw.ellipse(ring_surf2, (80, 200, 120, int(pulse2 * 180)),
-                                (0, 0, 44, 22), 2)
-            surface.blit(ring_surf2, (cx - 22, cy - 2))
+                pygame.draw.ellipse(surface, lc, (lx - 9, ly - 5, 18, 10))
+            # Bright solid teal ring (not subtle)
+            pygame.draw.ellipse(surface, (42, 210, 130),
+                                (cx - 16, cy - 2, 32, 14), 2)
+            # Tick mark on stem
+            pygame.draw.line(surface, (80, 255, 140),
+                             (int(cx + sway - 4), cy - stem_h + 4),
+                             (int(cx + sway + 4), cy - stem_h - 4), 2)
 
         elif state == DEAD:
-            # Wilted bare stalk
-            pygame.draw.line(surface, (70, 55, 40),
-                             (cx, cy), (int(cx - 4 + sway), cy - 14), 2)
-            pygame.draw.line(surface, (60, 45, 30),
-                             (cx, cy - 5), (int(cx - 9), cy - 12), 1)
-            pygame.draw.line(surface, (60, 45, 30),
-                             (cx, cy - 8), (int(cx + 7), cy - 14), 1)
+            # Clearly visible dark brown dead plant — X shape + drooped leaves
+            pygame.draw.line(surface, (90, 60, 30),
+                             (cx, cy), (int(cx - 3 + sway), cy - 20), 2)
+            # Drooped dead leaves
+            for i, (dx, dy) in enumerate([(-12, -8), (10, -12), (-8, -16)]):
+                pygame.draw.line(surface, (80, 50, 25),
+                                 (int(cx + sway * 0.3), cy - 5 - i * 4),
+                                 (int(cx + dx), cy + dy), 2)
+            # X marker so it's unmistakable
+            pygame.draw.line(surface, (140, 60, 30),
+                             (cx - 6, cy - 22), (cx + 6, cy - 10), 2)
+            pygame.draw.line(surface, (140, 60, 30),
+                             (cx + 6, cy - 22), (cx - 6, cy - 10), 2)
 
         elif state == BASE:
             # Helipad
@@ -517,14 +553,8 @@ class FarmRenderer:
         surface = self.screen
 
         # ── Background ───────────────────────────
-        # Sky gradient
-        for i in range(self.WINDOW_H // 2):
-            t_val  = i / (self.WINDOW_H // 2)
-            r_val  = int(26 + (90 - 26) * t_val)
-            g_val  = int(42 + (154 - 42) * t_val)
-            b_val  = int(58 + (191 - 58) * t_val)
-            pygame.draw.line(surface, (r_val, g_val, b_val),
-                             (0, i), (self.WINDOW_W, i))
+        # Blit pre-baked sky (fast) + fill lower half
+        surface.blit(self._sky_surface, (0, 0))
         surface.fill(BG_COLOR, (0, self.WINDOW_H // 2,
                                 self.WINDOW_W, self.WINDOW_H // 2))
 
@@ -538,9 +568,7 @@ class FarmRenderer:
             for col in range(self.grid_size):
                 state = grid[row, col]
                 x, y  = self.iso(col, row)
-                # Offset two plants per cell
-                for p_offset, (ox, oy) in enumerate([(-10, 4), (10, 8)]):
-                    seed = col * 17 + row * 31 + p_offset * 7
+                for ox, oy, seed in self._plant_offsets[(row, col)]:
                     self._draw_crop(surface, x + ox, y + oy, state, seed)
 
         # ── Trail ────────────────────────────────
