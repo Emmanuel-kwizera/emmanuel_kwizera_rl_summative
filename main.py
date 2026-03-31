@@ -191,8 +191,9 @@ def run_reinforce_model(env: CropDroneEnv):
     import torch.nn as nn
 
     candidates = [
-        ("models/improved/pg/reinforce_best.pt", 128),
-        ("models/pg/reinforce_best.pt",           256),
+        ("models/improved/reinforce_v2/reinforce_v2_best.pt", 128),
+        ("models/improved/pg/reinforce_best.pt",              128),
+        ("models/pg/reinforce_best.pt",                       256),
     ]
     loaded = None
     for path, hidden in candidates:
@@ -245,18 +246,20 @@ def run_reinforce_model(env: CropDroneEnv):
 def find_best_model():
     """Scan all model folders and return the algo key with highest reward."""
     candidates = {
-        "ppo_v2":     ("models/improved/ppo_v2/best_model.zip",
-                       "models/improved/ppo_v2/best_reward.txt"),
-        "dqn":        ("models/improved/dqn/best_model.zip",
-                       "models/improved/dqn/best_reward.txt"),
-        "reinforce":  ("models/improved/pg/reinforce_best.pt",
-                       "models/improved/pg/reinforce_best_reward.txt"),
-        "ppo_orig":   ("models/pg/ppo_best.zip",
-                       "models/pg/ppo_best_reward.txt"),
-        "reinforce_orig": ("models/pg/reinforce_best.pt",
-                           "models/pg/reinforce_best_reward.txt"),
-        "dqn_orig":   ("models/dqn/best_model.zip",
-                       "models/dqn/best_reward.txt"),
+        "ppo_v2":        ("models/improved/ppo_v2/best_model.zip",
+                          "models/improved/ppo_v2/best_reward.txt"),
+        "reinforce_v2":  ("models/improved/reinforce_v2/reinforce_v2_best.pt",
+                          "models/improved/reinforce_v2/reinforce_v2_best_reward.txt"),
+        "dqn":           ("models/improved/dqn/best_model.zip",
+                          "models/improved/dqn/best_reward.txt"),
+        "reinforce":     ("models/improved/pg/reinforce_best.pt",
+                          "models/improved/pg/reinforce_best_reward.txt"),
+        "ppo_orig":      ("models/pg/ppo_best.zip",
+                          "models/pg/ppo_best_reward.txt"),
+        "reinforce_orig":("models/pg/reinforce_best.pt",
+                          "models/pg/reinforce_best_reward.txt"),
+        "dqn_orig":      ("models/dqn/best_model.zip",
+                          "models/dqn/best_reward.txt"),
     }
 
     best_algo, best_reward = None, -np.inf
@@ -272,9 +275,10 @@ def find_best_model():
             best_reward, best_algo = reward, algo
 
     # Normalise aliases
-    if best_algo == "ppo_orig":      best_algo = "ppo"
+    if best_algo == "ppo_orig":       best_algo = "ppo"
     if best_algo == "reinforce_orig": best_algo = "reinforce"
-    if best_algo == "dqn_orig":      best_algo = "dqn"
+    if best_algo == "reinforce_v2":   best_algo = "reinforce"
+    if best_algo == "dqn_orig":       best_algo = "dqn"
     return best_algo
 
 
