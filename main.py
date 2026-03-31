@@ -95,7 +95,8 @@ def run_sb3_model(env: CropDroneEnv, algo: str):
     env.close()
 
 
-def run_ppo_v2(render_mode: str):
+def run_ppo_v2(render_mode: str, model_dir: str = "models/improved/ppo_v2",
+               log_dir: str = "logs/improved/ppo_v2"):
     """
     PPO v2 needs the EXACT same env stack it was trained on:
     CropDroneEnv (easy) → RewardShapingWrapper → Monitor → VecNormalize
@@ -109,12 +110,12 @@ def run_ppo_v2(render_mode: str):
 
     # Find model — check global best first, then per-run bests
     model_candidates = [
-        "models/improved/ppo_v2/best_model",
-        "models/improved/ppo_v2/run_02/best_model",
-        "models/improved/ppo_v2/run_01/best_model",
-        "models/improved/ppo_v2/run_05/best_model",
-        "models/improved/ppo_v2/run_03/best_model",
-        "models/improved/ppo_v2/run_04/best_model",
+        os.path.join(model_dir, "best_model"),
+        os.path.join(model_dir, "run_02/best_model"),
+        os.path.join(model_dir, "run_01/best_model"),
+        os.path.join(model_dir, "run_05/best_model"),
+        os.path.join(model_dir, "run_03/best_model"),
+        os.path.join(model_dir, "run_04/best_model"),
     ]
     model_path = next((p for p in model_candidates if os.path.exists(p+".zip")), None)
     if model_path is None:
@@ -123,7 +124,7 @@ def run_ppo_v2(render_mode: str):
 
     # Find VecNormalize stats
     norm_candidates = [
-        "models/improved/ppo_v2/vecnormalize_best.pkl",
+        os.path.join(model_dir, "vecnormalize_best.pkl"),
         os.path.join(os.path.dirname(model_path), "vecnormalize.pkl"),
         os.path.join(os.path.dirname(model_path), "vecnormalize_best.pkl"),
     ]
@@ -191,9 +192,10 @@ def run_reinforce_model(env: CropDroneEnv):
     import torch.nn as nn
 
     candidates = [
-        ("models/improved/reinforce_v2/reinforce_v2_best.pt", 128),
-        ("models/improved/pg/reinforce_best.pt",              128),
-        ("models/pg/reinforce_best.pt",                       256),
+        ("models/improved/v3/reinforce/reinforce_v3_best.pt",  128),
+        ("models/improved/reinforce_v2/reinforce_v2_best.pt",  128),
+        ("models/improved/pg/reinforce_best.pt",               128),
+        ("models/pg/reinforce_best.pt",                        256),
     ]
     loaded = None
     for path, hidden in candidates:
@@ -246,14 +248,18 @@ def run_reinforce_model(env: CropDroneEnv):
 def find_best_model():
     """Scan all model folders and return the algo key with highest reward."""
     candidates = {
+        "ppo_v3":        ("models/improved/v3/ppo/best_model.zip",
+                          "models/improved/v3/ppo/best_reward.txt"),
         "ppo_v2":        ("models/improved/ppo_v2/best_model.zip",
                           "models/improved/ppo_v2/best_reward.txt"),
+        "reinforce_v3":  ("models/improved/v3/reinforce/reinforce_v3_best.pt",
+                          "models/improved/v3/reinforce/reinforce_v3_best_reward.txt"),
         "reinforce_v2":  ("models/improved/reinforce_v2/reinforce_v2_best.pt",
                           "models/improved/reinforce_v2/reinforce_v2_best_reward.txt"),
+        "dqn_v3":        ("models/improved/v3/dqn/best_model.zip",
+                          "models/improved/v3/dqn/best_reward.txt"),
         "dqn":           ("models/improved/dqn/best_model.zip",
                           "models/improved/dqn/best_reward.txt"),
-        "reinforce":     ("models/improved/pg/reinforce_best.pt",
-                          "models/improved/pg/reinforce_best_reward.txt"),
         "ppo_orig":      ("models/pg/ppo_best.zip",
                           "models/pg/ppo_best_reward.txt"),
         "reinforce_orig":("models/pg/reinforce_best.pt",
@@ -274,18 +280,27 @@ def find_best_model():
         if reward > best_reward:
             best_reward, best_algo = reward, algo
 
-    # Normalise aliases
-    if best_algo == "ppo_orig":       best_algo = "ppo"
-    if best_algo == "reinforce_orig": best_algo = "reinforce"
-    if best_algo == "reinforce_v2":   best_algo = "reinforce"
-    if best_algo == "dqn_orig":       best_algo = "dqn"
+    # Normalise aliases → canonical mode keys
+    alias_map = {
+        "ppo_v3":         "ppo_v3",
+        "ppo_v2":         "ppo_v2",
+        "reinforce_v3":   "reinforce",
+        "reinforce_v2":   "reinforce",
+        "reinforce":      "reinforce",
+        "reinforce_orig": "reinforce",
+        "dqn_v3":         "dqn",
+        "dqn":            "dqn",
+        "dqn_orig":       "dqn",
+        "ppo_orig":       "ppo",
+    }
+    best_algo = alias_map.get(best_algo, best_algo)
     return best_algo
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode",
-                        choices=["random","best","dqn","ppo","ppo_v2","reinforce"],
+                        choices=["random","best","dqn","ppo","ppo_v2","ppo_v3","reinforce"],
                         default="random")
     parser.add_argument("--episodes",  type=int, default=1)
     parser.add_argument("--no-render", action="store_true")
@@ -302,9 +317,14 @@ if __name__ == "__main__":
     if args.mode == "random":
         run_random(std_env, episodes=args.episodes)
 
-    elif args.mode == "ppo_v2":
+    elif args.mode in ("ppo_v2", "ppo_v3"):
         std_env.close()
-        run_ppo_v2(render_mode)
+        # Determine which model dir to load from
+        if args.mode == "ppo_v3":
+            run_ppo_v2(render_mode, model_dir="models/improved/v3/ppo",
+                       log_dir="logs/improved/v3/ppo")
+        else:
+            run_ppo_v2(render_mode)
 
     elif args.mode in ("dqn", "ppo"):
         run_sb3_model(std_env, args.mode)
@@ -320,7 +340,11 @@ if __name__ == "__main__":
             run_random(std_env, episodes=args.episodes)
         else:
             print(f"\n  Best model: {best.upper()}")
-            if best == "ppo_v2":
+            if best == "ppo_v3":
+                std_env.close()
+                run_ppo_v2(render_mode, model_dir="models/improved/v3/ppo",
+                           log_dir="logs/improved/v3/ppo")
+            elif best == "ppo_v2":
                 std_env.close()
                 run_ppo_v2(render_mode)
             elif best == "reinforce":
