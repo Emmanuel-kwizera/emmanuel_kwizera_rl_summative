@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D Farm Visualization Design</title>
+<style>
+  body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; }
+</style>
+</head>
+<body>
+<div style="position:relative;width:100%;height:100vh;overflow:hidden;">
+  <canvas id="tc" style="width:100%;height:100%;display:block;"></canvas>
+  <div id="eventLog" style="position:absolute;top:10px;right:10px;width:188px;background:rgba(6,10,14,0.78);border-radius:8px;padding:8px 10px;font-family:monospace;font-size:10px;color:#aaa;line-height:1.8;pointer-events:none;min-height:24px;"></div>
+  <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(6,10,14,0.88);padding:7px 14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;border-top:1px solid rgba(80,140,200,0.2);">
+    <div style="display:flex;flex-direction:column"><span style="font-size:9px;color:rgba(120,160,200,0.7)">STEP</span><span id="hStep" style="font-size:13px;font-weight:500;color:#ddd;font-family:monospace">000</span></div>
+    <div style="display:flex;flex-direction:column"><span style="font-size:9px;color:rgba(120,160,200,0.7)">SCORE</span><span id="hScore" style="font-size:13px;font-weight:500;color:#5de88a;font-family:monospace">+000</span></div>
+    <div style="display:flex;flex-direction:column;min-width:68px"><span style="font-size:9px;color:rgba(120,160,200,0.7)">FUEL</span><div style="width:68px;height:5px;background:rgba(255,255,255,0.1);border-radius:3px;margin-top:4px"><div id="fuelBar" style="height:100%;width:100%;background:#2daa55;border-radius:3px;transition:width .5s"></div></div></div>
+    <div style="display:flex;flex-direction:column"><span style="font-size:9px;color:rgba(200,140,255,0.8)">FUNGICIDE</span><span id="hFungi" style="font-size:13px;font-weight:500;color:#cc88ff;font-family:monospace">x3</span></div>
+    <div style="display:flex;flex-direction:column"><span style="font-size:9px;color:rgba(255,180,100,0.8)">PESTICIDE</span><span id="hPest" style="font-size:13px;font-weight:500;color:#ff8844;font-family:monospace">x3</span></div>
+    <div style="display:flex;flex-direction:column"><span style="font-size:9px;color:rgba(255,100,100,0.8)">INFECTED</span><span id="hInf" style="font-size:13px;font-weight:500;color:#ee4444;font-family:monospace">5</span></div>
+    <div style="display:flex;gap:5px;margin-left:auto">
+      <button onclick="setView(0)" id="b0" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.14);color:#ccc;cursor:pointer">Close</button>
+      <button onclick="setView(1)" id="b1" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.1);background:none;color:#777;cursor:pointer">Wide</button>
+      <button onclick="setView(2)" id="b2" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.1);background:none;color:#777;cursor:pointer">Follow</button>
+      <button onclick="setView(3)" id="b3" style="font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.1);background:none;color:#777;cursor:pointer">Top</button>
+    </div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+const canvas=document.getElementById('tc');
+const W=window.innerWidth, H=window.innerHeight;
+canvas.width=W; canvas.height=H;
+
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setSize(W,H); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.3;
+
+const scene=new THREE.Scene();
+
+const skyGeo=new THREE.SphereGeometry(180,16,8);
+const skyMat=new THREE.ShaderMaterial({
+  side:THREE.BackSide,
+  uniforms:{topColor:{value:new THREE.Color(0x1a6fa8)},bottomColor:{value:new THREE.Color(0xf0c06a)}},
+  vertexShader:`varying vec3 vW; void main(){ vW=(modelMatrix*vec4(position,1.0)).xyz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`uniform vec3 topColor,bottomColor; varying vec3 vW; void main(){ float h=normalize(vW+vec3(0,20,0)).y; gl_FragColor=vec4(mix(bottomColor,topColor,max(pow(max(h,0.0),0.4),0.0)),1.0); }`
+});
+scene.add(new THREE.Mesh(skyGeo,skyMat));
+scene.fog=new THREE.Fog(0xc8a870,22,70);
+
+const camera=new THREE.PerspectiveCamera(58,W/H,0.1,300);
+// Start with close low-angle view
+camera.position.set(8,4,16); camera.lookAt(8,1,8);
+
+const sun=new THREE.DirectionalLight(0xffe4a0,2.2);
+sun.position.set(25,20,-2); sun.castShadow=true;
+sun.shadow.mapSize.width=2048; sun.shadow.mapSize.height=2048;
+sun.shadow.camera.left=-28; sun.shadow.camera.right=28;
+sun.shadow.camera.top=28; sun.shadow.camera.bottom=-28;
+sun.shadow.bias=-0.0004; scene.add(sun);
+scene.add(new THREE.AmbientLight(0x7799bb,0.55));
+const fill=new THREE.DirectionalLight(0x88aadd,0.3); fill.position.set(-5,10,10); scene.add(fill);
+
+const COLS=8,ROWS=8,CS=2.0;
+const cx=c=>c*CS+CS/2, cz=r=>r*CS+CS/2;
+
+const states=[
+  [6,0,2,0,0,1,0,0],
+  [0,0,0,2,0,0,0,1],
+  [0,2,0,0,0,0,1,0],
+  [0,0,0,0,0,2,0,0],
+  [1,0,0,0,0,0,0,0],
+  [0,0,2,0,3,0,0,2],
+  [0,1,0,0,0,0,0,0],
+  [0,0,0,0,2,0,1,0]
+];
+
+// Wide ground
+const bigGnd=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshLambertMaterial({color:0x6a8c3a}));
+bigGnd.rotation.x=-Math.PI/2; bigGnd.position.set(COLS*CS/2,-0.04,ROWS*CS/2); bigGnd.receiveShadow=true; scene.add(bigGnd);
+
+// Field base
+const fieldGnd=new THREE.Mesh(new THREE.PlaneGeometry(COLS*CS+0.4,ROWS*CS+0.4),new THREE.MeshLambertMaterial({color:0x3d2208}));
+fieldGnd.rotation.x=-Math.PI/2; fieldGnd.position.set(COLS*CS/2,-0.005,ROWS*CS/2); fieldGnd.receiveShadow=true; scene.add(fieldGnd);
+
+// Soil tiles
+const sp=[0x4a2c0e,0x5c3812,0x3e2208,0x6b4418,0x523010];
+for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+  const bed=new THREE.Mesh(new THREE.BoxGeometry(CS-0.05,0.1,CS-0.05),new THREE.MeshLambertMaterial({color:sp[(r*5+c*3)%5]}));
+  bed.position.set(cx(c),0,cz(r)); bed.receiveShadow=true; scene.add(bed);
+  for(let i=0;i<4;i++){
+    const fw=new THREE.Mesh(new THREE.BoxGeometry(CS-0.14,0.04,0.07),new THREE.MeshLambertMaterial({color:0x2a1506}));
+    fw.position.set(cx(c),0.07,cz(r)-0.7+i*0.46); scene.add(fw);
+  }
+}
+
+// Fence
+for(let i=0;i<=COLS;i++){
+  [[i*CS,0],[i*CS,ROWS*CS]].forEach(([px,pz])=>{
+    const p=new THREE.Mesh(new THREE.BoxGeometry(0.07,0.65,0.07),new THREE.MeshLambertMaterial({color:0x8b6040}));
+    p.position.set(px,0.32,pz); p.castShadow=true; scene.add(p);
+  });
+}
+for(let i=0;i<=ROWS;i++){
+  [[0,i*CS],[COLS*CS,i*CS]].forEach(([px,pz])=>{
+    const p=new THREE.Mesh(new THREE.BoxGeometry(0.07,0.65,0.07),new THREE.MeshLambertMaterial({color:0x8b6040}));
+    p.position.set(px,0.32,pz); p.castShadow=true; scene.add(p);
+  });
+}
+const wH=new THREE.Mesh(new THREE.BoxGeometry(COLS*CS,0.018,0.018),new THREE.MeshLambertMaterial({color:0x999999}));
+wH.position.set(COLS*CS/2,0.42,0); scene.add(wH.clone());
+const wH2=wH.clone(); wH2.position.set(COLS*CS/2,0.42,ROWS*CS); scene.add(wH2);
+const wV=new THREE.Mesh(new THREE.BoxGeometry(0.018,0.018,ROWS*CS),new THREE.MeshLambertMaterial({color:0x999999}));
+wV.position.set(0,0.42,ROWS*CS/2); scene.add(wV);
+const wV2=wV.clone(); wV2.position.set(COLS*CS,0.42,ROWS*CS/2); scene.add(wV2);
+
+// Trees perimeter
+function mkTree(x,z){
+  const h=2.0+Math.random()*1.4, r=1.2+Math.random()*0.7;
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.17,h,7),new THREE.MeshLambertMaterial({color:0x5c3a18}));
+  trunk.position.set(x,h/2,z); trunk.castShadow=true; scene.add(trunk);
+  [[0,0,r],[r*0.4,r*0.5,r*0.78],[-(r*0.3),r*0.6,r*0.7]].forEach(([ox,oy,cr])=>{
+    const c=new THREE.Mesh(new THREE.SphereGeometry(cr,8,6),new THREE.MeshLambertMaterial({color:new THREE.Color(0.15+Math.random()*0.1,0.42+Math.random()*0.12,0.1+Math.random()*0.08)}));
+    c.position.set(x+ox,h+oy,z); c.castShadow=true; scene.add(c);
+  });
+}
+[[-3,3],[-3,9],[-3,15],[COLS*CS+3,1],[COLS*CS+3,7],[COLS*CS+3,13],
+ [3,-3],[9,-3],[15,-3],[3,ROWS*CS+3],[9,ROWS*CS+3],[15,ROWS*CS+3]].forEach(([x,z])=>mkTree(x,z));
+
+// Irrigation ditch
+const ditch=new THREE.Mesh(new THREE.BoxGeometry(0.48,0.2,ROWS*CS+3),new THREE.MeshLambertMaterial({color:0x1a3520}));
+ditch.position.set(-1.1,0,ROWS*CS/2); scene.add(ditch);
+const waterSurf=new THREE.Mesh(new THREE.PlaneGeometry(0.36,ROWS*CS),new THREE.MeshLambertMaterial({color:0x2a6688,transparent:true,opacity:0.8}));
+waterSurf.rotation.x=-Math.PI/2; waterSurf.position.set(-1.1,0.04,ROWS*CS/2); scene.add(waterSurf);
+
+// Clouds
+const cloudGrps=[];
+function mkCloud(x,y,z,s){
+  const g=new THREE.Group();
+  [[0,0,0,1.8*s],[1.5*s,0.3*s,0,1.2*s],[-1.2*s,0.2*s,0.2*s,1.1*s],[0.6*s,0.6*s,0.9*s,0.9*s]].forEach(([ox,oy,oz,r])=>{
+    const m=new THREE.Mesh(new THREE.SphereGeometry(r,7,5),new THREE.MeshLambertMaterial({color:0xfff8f0,transparent:true,opacity:0.9}));
+    m.position.set(ox,oy,oz); g.add(m);
+  });
+  g.position.set(x,y,z); scene.add(g); cloudGrps.push(g); return g;
+}
+mkCloud(4,17,-18,1); mkCloud(18,21,-12,1.3); mkCloud(-6,15,-8,0.85); mkCloud(24,19,4,1.1);
+
+// ── CROPS ────────────────────────────────────────────────
+const pulseObjs=[];
+const infectedCells=[];
+const cropsByCell={};
+
+function buildPlant(px,pz,s){
+  const g=new THREE.Group();
+  g.position.set(px,0,pz);
+
+  let sCol=0x3a8c20, lColA=0x4aaa28, lColB=0x2d7018;
+  let sH=0.75+Math.random()*0.4;
+  if(s===1){sCol=0x8a8020;lColA=0xb8a820;lColB=0x9a9010;}
+  else if(s===2){sCol=0x5a306a;lColA=0x7a408a;lColB=0x6a3878;}
+  else if(s===3){sCol=0x7a3020;lColA=0x8b4030;lColB=0x6a2818;}
+
+  // Stem with subtle taper
+  const stem=new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.05,sH,7),new THREE.MeshLambertMaterial({color:sCol}));
+  stem.position.y=sH/2+0.05; stem.castShadow=true; g.add(stem);
+
+  // Node bumps on stem
+  const nodeCount=3+Math.floor(Math.random()*2);
+  for(let n=0;n<nodeCount;n++){
+    const nh=sH*(0.2+n*0.22);
+    const node=new THREE.Mesh(new THREE.SphereGeometry(0.038,5,4),new THREE.MeshLambertMaterial({color:sCol}));
+    node.position.y=nh+0.05; node.scale.y=0.55; g.add(node);
+
+    // Pair of leaves at each node
+    const leafAngle=(n*Math.PI*0.72)+Math.random()*0.3;
+    [-1,1].forEach((side,li)=>{
+      const la=leafAngle+side*Math.PI;
+      const llen=0.38+Math.random()*0.18;
+      const lc=li===0?lColA:lColB;
+      // Leaf as a tapered plane bent outward
+      const pts=[];
+      for(let i=0;i<=6;i++){
+        const t=i/6;
+        const w=0.12*(1-t*0.85);
+        pts.push(new THREE.Vector3(Math.cos(la)*llen*t, -Math.sin(t*Math.PI*0.55)*0.28, Math.sin(la)*llen*t));
+      }
+      // Simple flat leaf using PlaneGeometry rotated
+      const lGeo=new THREE.PlaneGeometry(llen,0.15,3,1);
+      const lMat=new THREE.MeshLambertMaterial({color:lc,side:THREE.DoubleSide});
+      const lMesh=new THREE.Mesh(lGeo,lMat);
+      lMesh.rotation.y=la;
+      lMesh.rotation.z=0.55*side;
+      lMesh.position.set(Math.cos(la)*llen*0.45, nh+0.06, Math.sin(la)*llen*0.45);
+      lMesh.castShadow=true; g.add(lMesh);
+    });
+  }
+
+  // Tassel/ear tip
+  if(s===0||s===1){
+    for(let t=0;t<6;t++){
+      const ta=Math.random()*Math.PI*2;
+      const tass=new THREE.Mesh(new THREE.CylinderGeometry(0.005,0.01,0.2+Math.random()*0.1,4),new THREE.MeshLambertMaterial({color:s===1?0xcc9900:0x8aaa30}));
+      tass.position.set(Math.cos(ta)*0.07,sH+0.05+Math.random()*0.1,Math.sin(ta)*0.07);
+      tass.rotation.z=(Math.random()-0.5)*0.7; g.add(tass);
+    }
+    // Corn ear
+    const ear=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.06,0.22,7),new THREE.MeshLambertMaterial({color:s===1?0xd4aa00:0xd4c840}));
+    ear.position.set(0.12,sH*0.55,0.05); ear.rotation.z=0.55; ear.castShadow=true; g.add(ear);
+    const husk1=new THREE.Mesh(new THREE.PlaneGeometry(0.12,0.28,1,2),new THREE.MeshLambertMaterial({color:s===1?0x889010:0x5a8010,side:THREE.DoubleSide}));
+    husk1.position.set(0.12,sH*0.55,0.05); husk1.rotation.y=0.8; husk1.rotation.z=0.55; g.add(husk1);
+  }
+
+  // Disease markers
+  if(s===2){
+    for(let i=0;i<5;i++){
+      const sp=new THREE.Mesh(new THREE.SphereGeometry(0.04+Math.random()*0.03,5,4),new THREE.MeshLambertMaterial({color:0xaa33bb}));
+      sp.position.set((Math.random()-0.5)*0.32,sH*0.35+Math.random()*0.35,(Math.random()-0.5)*0.32);
+      sp.castShadow=true; g.add(sp);
+    }
+  }
+  if(s===3){
+    for(let i=0;i<4;i++){
+      const sp=new THREE.Mesh(new THREE.SphereGeometry(0.038,4,4),new THREE.MeshLambertMaterial({color:0xcc3300}));
+      sp.position.set((Math.random()-0.5)*0.28,sH*0.32+Math.random()*0.28,(Math.random()-0.5)*0.28);
+      sp.castShadow=true; g.add(sp);
+    }
+  }
+  scene.add(g); return g;
+}
+
+for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+  const s=states[r][c]; if(s===6) continue;
+  const plants=[];
+  const num=2+Math.floor(Math.random()*2);
+  for(let p=0;p<num;p++){
+    const ox=(p-num/2+0.5)*0.52+( Math.random()-0.5)*0.18;
+    const oz=(Math.random()-0.5)*0.55;
+    plants.push(buildPlant(cx(c)+ox, cz(r)+oz, s));
+  }
+  cropsByCell[r+','+c]=plants;
+
+  if(s===1){
+    const ring=new THREE.Mesh(new THREE.RingGeometry(0.58,0.74,22),new THREE.MeshBasicMaterial({color:0xffdd00,side:THREE.DoubleSide,transparent:true,opacity:0.55}));
+    ring.rotation.x=-Math.PI/2; ring.position.set(cx(c),0.13,cz(r));
+    ring.userData={pulseType:'warn'}; scene.add(ring); pulseObjs.push(ring);
+  }
+  if(s===2){
+    const gl=new THREE.Mesh(new THREE.CircleGeometry(0.65,22),new THREE.MeshBasicMaterial({color:0x9900cc,side:THREE.DoubleSide,transparent:true,opacity:0.2}));
+    gl.rotation.x=-Math.PI/2; gl.position.set(cx(c),0.12,cz(r));
+    gl.userData={pulseType:'fungal'}; scene.add(gl); pulseObjs.push(gl);
+    infectedCells.push({row:r,col:c,type:'fungal',treated:false});
+  }
+  if(s===3){
+    const gl=new THREE.Mesh(new THREE.CircleGeometry(0.6,22),new THREE.MeshBasicMaterial({color:0xcc2200,side:THREE.DoubleSide,transparent:true,opacity:0.18}));
+    gl.rotation.x=-Math.PI/2; gl.position.set(cx(c),0.12,cz(r));
+    gl.userData={pulseType:'pest'}; scene.add(gl); pulseObjs.push(gl);
+    infectedCells.push({row:r,col:c,type:'pest',treated:false});
+  }
+}
+
+// Base station
+const baseBox=new THREE.Mesh(new THREE.BoxGeometry(1.7,0.3,1.7),new THREE.MeshLambertMaterial({color:0x1a2a3a}));
+baseBox.position.set(cx(0),0.15,cz(0)); baseBox.castShadow=true; scene.add(baseBox);
+const pad=new THREE.Mesh(new THREE.CylinderGeometry(0.65,0.65,0.04,20),new THREE.MeshLambertMaterial({color:0x2a3a4a}));
+pad.position.set(cx(0),0.33,cz(0)); scene.add(pad);
+const hmark=new THREE.Mesh(new THREE.TorusGeometry(0.46,0.045,6,20),new THREE.MeshLambertMaterial({color:0xffcc00}));
+hmark.rotation.x=Math.PI/2; hmark.position.set(cx(0),0.37,cz(0)); scene.add(hmark);
+const mast=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.5,6),new THREE.MeshLambertMaterial({color:0x334455}));
+mast.position.set(cx(0)+0.65,0.75,cz(0)); mast.castShadow=true; scene.add(mast);
+const blink=new THREE.Mesh(new THREE.SphereGeometry(0.07,6,6),new THREE.MeshBasicMaterial({color:0xff2200}));
+blink.position.set(cx(0)+0.65,1.55,cz(0)); scene.add(blink);
+
+// Drone
+const drone=new THREE.Group();
+const dBody=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.1,0.28),new THREE.MeshLambertMaterial({color:0x1a1a1a}));
+dBody.castShadow=true; drone.add(dBody);
+const dTop=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.042,0.2),new THREE.MeshLambertMaterial({color:0x2a2a2a}));
+dTop.position.y=0.07; drone.add(dTop);
+const dDome=new THREE.Mesh(new THREE.SphereGeometry(0.1,8,5,0,Math.PI*2,0,Math.PI/2),new THREE.MeshLambertMaterial({color:0xcc2222}));
+dDome.position.y=0.05; drone.add(dDome);
+const dCam=new THREE.Mesh(new THREE.CylinderGeometry(0.044,0.044,0.07,8),new THREE.MeshLambertMaterial({color:0x111111}));
+dCam.position.y=-0.09; drone.add(dCam);
+const dLens=new THREE.Mesh(new THREE.SphereGeometry(0.034,8,6),new THREE.MeshLambertMaterial({color:0x001a44}));
+dLens.position.y=-0.127; drone.add(dLens);
+const dTank=new THREE.Mesh(new THREE.CylinderGeometry(0.052,0.052,0.24,8),new THREE.MeshLambertMaterial({color:0x2255aa}));
+dTank.position.set(0,-0.19,0); drone.add(dTank);
+const dNoz=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.034,0.06,6),new THREE.MeshLambertMaterial({color:0x333333}));
+dNoz.position.set(0,-0.33,0); drone.add(dNoz);
+
+const armDefs=[[0.42,0.38],[-0.42,0.38],[-0.42,-0.38],[0.42,-0.38]];
+const propGroups=[];
+armDefs.forEach(([ax,az],i)=>{
+  const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.024,0.024,0.9,5),new THREE.MeshLambertMaterial({color:0x222222}));
+  arm.rotation.z=Math.PI/2; arm.rotation.y=Math.atan2(az,ax); arm.position.set(ax/2,0,az/2); drone.add(arm);
+  const mot=new THREE.Mesh(new THREE.CylinderGeometry(0.076,0.076,0.058,8),new THREE.MeshLambertMaterial({color:0x444444}));
+  mot.position.set(ax,0.032,az); drone.add(mot);
+  const mRing=new THREE.Mesh(new THREE.TorusGeometry(0.082,0.013,6,12),new THREE.MeshLambertMaterial({color:0x777777}));
+  mRing.rotation.x=Math.PI/2; mRing.position.set(ax,0.052,az); drone.add(mRing);
+  const pg=new THREE.Group(); pg.position.set(ax,0.072,az);
+  for(let p=0;p<2;p++){
+    const bl=new THREE.Mesh(new THREE.BoxGeometry(0.36,0.006,0.065),new THREE.MeshLambertMaterial({color:0x999999,transparent:true,opacity:0.84}));
+    bl.rotation.y=(p/2)*Math.PI; pg.add(bl);
+  }
+  drone.add(pg); propGroups.push(pg);
+  const lU=new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,0.19,5),new THREE.MeshLambertMaterial({color:0x222222}));
+  lU.rotation.z=ax>0?0.42:-0.42; lU.position.set(ax*0.5,-0.1,az*0.5); drone.add(lU);
+  const lL=new THREE.Mesh(new THREE.CylinderGeometry(0.01,0.01,0.11,5),new THREE.MeshLambertMaterial({color:0x333333}));
+  lL.position.set(ax*0.68,-0.21,az*0.5); drone.add(lL);
+});
+const ledG=new THREE.Mesh(new THREE.SphereGeometry(0.022,6,6),new THREE.MeshBasicMaterial({color:0x00ff88}));
+ledG.position.set(0.16,0.06,0); drone.add(ledG);
+const ledR=new THREE.Mesh(new THREE.SphereGeometry(0.022,6,6),new THREE.MeshBasicMaterial({color:0xff2200}));
+ledR.position.set(-0.16,0.06,0); drone.add(ledR);
+drone.position.set(cx(0),1.8,cz(0)); scene.add(drone);
+
+const shad=new THREE.Mesh(new THREE.CircleGeometry(0.45,16),new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.11,side:THREE.DoubleSide}));
+shad.rotation.x=-Math.PI/2; shad.position.y=0.09; scene.add(shad);
+
+const trailPts=[]; const trailGeo=new THREE.BufferGeometry();
+scene.add(new THREE.Line(trailGeo,new THREE.LineBasicMaterial({color:0x55bbff,transparent:true,opacity:0.4})));
+
+// Particles
+const particles=[];
+function spawnSpray(px,py,pz,type){
+  const col=type==='fungal'?0xdd44ff:0xff6622;
+  for(let i=0;i<40;i++){
+    const m=new THREE.Mesh(new THREE.SphereGeometry(0.036+Math.random()*0.036,4,4),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.92}));
+    m.position.set(px+(Math.random()-0.5)*0.12,py,pz+(Math.random()-0.5)*0.12);
+    const a=Math.random()*Math.PI*2, sp=0.025+Math.random()*0.14;
+    m.userData={vx:Math.cos(a)*sp*0.055,vy:-0.018-Math.random()*0.045,vz:Math.sin(a)*sp*0.055,life:1,decay:0.016+Math.random()*0.012};
+    scene.add(m); particles.push(m);
+  }
+  const ring=new THREE.Mesh(new THREE.RingGeometry(0.05,0.65,24),new THREE.MeshBasicMaterial({color:col,side:THREE.DoubleSide,transparent:true,opacity:0.65}));
+  ring.rotation.x=-Math.PI/2; ring.position.set(px,0.14,pz);
+  ring.userData={isRing:true,life:1,decay:0.026,scaleTarget:3.5}; scene.add(ring); particles.push(ring);
+  const mist=new THREE.Mesh(new THREE.SphereGeometry(0.45,8,6),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.2}));
+  mist.position.set(px,py-0.2,pz);
+  mist.userData={isMist:true,life:1,decay:0.022}; scene.add(mist); particles.push(mist);
+}
+function spawnTreat(px,pz){
+  for(let i=0;i<16;i++){
+    const a=(i/16)*Math.PI*2;
+    const m=new THREE.Mesh(new THREE.SphereGeometry(0.052,4,4),new THREE.MeshBasicMaterial({color:0x44ff88,transparent:true,opacity:0.85}));
+    m.position.set(px+Math.cos(a)*0.28,0.24+Math.random()*0.18,pz+Math.sin(a)*0.28);
+    m.userData={vx:Math.cos(a)*0.011,vy:0.016+Math.random()*0.018,vz:Math.sin(a)*0.011,life:1,decay:0.025};
+    scene.add(m); particles.push(m);
+  }
+}
+
+// Patrol path
+const dpath=[
+  {r:0,c:0},{r:0,c:2},{r:1,c:3},{r:2,c:1},{r:2,c:6},
+  {r:3,c:5},{r:4,c:0},{r:5,c:2},{r:5,c:4},{r:5,c:7},
+  {r:6,c:1},{r:7,c:4},{r:7,c:6},{r:1,c:7},{r:0,c:5},{r:0,c:0}
+];
+let pidx=0,pt=0,stepCount=0,lastStep=-1;
+let score=0,fuel=100,fungiC=3,pestC=3,infCount=infectedCells.length;
+let viewMode=0;
+const logLines=[];
+function addLog(msg,col){
+  logLines.unshift('<span style="color:'+col+'">'+msg+'</span>');
+  if(logLines.length>5) logLines.pop();
+  document.getElementById('eventLog').innerHTML=logLines.join('<br>');
+}
+
+window.setView=function(v){
+  viewMode=v;
+  ['b0','b1','b2','b3'].forEach((id,i)=>{
+    const b=document.getElementById(id);
+    if(!b) return;
+    b.style.background=i===v?'rgba(255,255,255,0.15)':'none';
+    b.style.borderColor=i===v?'rgba(255,255,255,0.3)':'rgba(255,255,255,0.1)';
+    b.style.color=i===v?'#ccc':'#777';
+  });
+};
+
+let tick=0;
+(function loop(){
+  requestAnimationFrame(loop);
+  tick++;
+
+  propGroups.forEach((pg,i)=>{ pg.rotation.y+=0.46*(i%2===0?1:-1); });
+  ledG.material.opacity=0.4+0.55*Math.sin(tick*0.12);
+  ledR.material.opacity=0.4+0.55*Math.sin(tick*0.09+Math.PI);
+  blink.material.opacity=0.4+0.6*Math.sin(tick*0.06);
+  cloudGrps.forEach((cl,i)=>{ cl.position.x+=0.004*(i%2===0?1:0.65); if(cl.position.x>38) cl.position.x=-12; });
+
+  pt+=0.008;
+  if(pt>=1){
+    pt=0; pidx=(pidx+1)%dpath.length;
+    stepCount++; fuel=Math.max(0,fuel-1.4);
+    document.getElementById('hStep').textContent=String(stepCount).padStart(3,'0');
+    document.getElementById('fuelBar').style.width=Math.round(fuel)+'%';
+    document.getElementById('fuelBar').style.background=fuel>40?'#2daa55':fuel>20?'#aaaa22':'#cc2222';
+  }
+
+  const cur=dpath[pidx], nxt=dpath[(pidx+1)%dpath.length];
+  const tx=cx(cur.c)+(cx(nxt.c)-cx(cur.c))*pt;
+  const tz=cz(cur.r)+(cz(nxt.r)-cz(cur.r))*pt;
+  const hy=1.55+Math.sin(tick*0.04)*0.1+Math.sin(tick*0.071)*0.045;
+  drone.position.set(tx,hy,tz);
+  drone.rotation.y=Math.atan2(nxt.c-cur.c,nxt.r-cur.r);
+  shad.position.set(tx,0.09,tz);
+  shad.material.opacity=0.1/(hy*0.5);
+
+  trailPts.push(new THREE.Vector3(tx,0.16,tz));
+  if(trailPts.length>90) trailPts.shift();
+  if(trailPts.length>1){ trailGeo.setFromPoints(trailPts); trailGeo.attributes.position.needsUpdate=true; }
+
+  if(stepCount!==lastStep&&pt<0.12){
+    lastStep=stepCount;
+    const cell=infectedCells.find(ic=>ic.row===cur.r&&ic.col===cur.c&&!ic.treated);
+    if(cell){
+      cell.treated=true;
+      spawnSpray(tx,hy-0.2,tz,cell.type);
+      score+=20; infCount=Math.max(0,infCount-1);
+      if(cell.type==='fungal'){fungiC=Math.max(0,fungiC-1);addLog('Fungicide sprayed! +20','#dd88ff');}
+      else{pestC=Math.max(0,pestC-1);addLog('Pesticide sprayed! +20','#ff9955');}
+      setTimeout(()=>spawnTreat(cx(cell.col),cz(cell.row)),700);
+      document.getElementById('hScore').textContent='+'+(score>=0?score:score);
+      document.getElementById('hFungi').textContent='x'+fungiC;
+      document.getElementById('hPest').textContent='x'+pestC;
+      document.getElementById('hInf').textContent=String(infCount);
+    } else if(states[cur.r]&&states[cur.r][cur.c]===1){
+      addLog('Sensor flag scanned +5','#ffdd44');
+      score+=5; document.getElementById('hScore').textContent='+'+score;
+    }
+  }
+
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i],d=p.userData;
+    if(d.isRing){ d.life-=d.decay; const s=1+(1-d.life)*d.scaleTarget; p.scale.set(s,1,s); p.material.opacity=d.life*0.55; if(d.life<=0){scene.remove(p);particles.splice(i,1);} }
+    else if(d.isMist){ d.life-=d.decay; p.scale.setScalar(1+(1-d.life)*1.6); p.material.opacity=d.life*0.18; if(d.life<=0){scene.remove(p);particles.splice(i,1);} }
+    else{ d.life-=d.decay; p.position.x+=d.vx; p.position.y+=d.vy; p.position.z+=d.vz; d.vy-=0.0018; p.material.opacity=d.life*0.82; p.scale.setScalar(0.3+d.life*0.7); if(d.life<=0||p.position.y<0.06){scene.remove(p);particles.splice(i,1);} }
+  }
+
+  pulseObjs.forEach(o=>{
+    const t=o.userData.pulseType;
+    if(t==='warn') o.material.opacity=0.3+0.3*Math.sin(tick*0.1);
+    else if(t==='fungal') o.material.opacity=0.12+0.1*Math.sin(tick*0.07);
+    else o.material.opacity=0.1+0.09*Math.sin(tick*0.09+1);
+  });
+
+  // Camera modes
+  if(viewMode===0){
+    // Close low-angle orbit — stays near the field, not too high
+    const a=tick*0.0032;
+    const rx=COLS*CS/2+Math.cos(a)*13;
+    const rz=ROWS*CS/2+Math.sin(a)*13;
+    camera.position.set(rx, 6+Math.sin(tick*0.006)*0.8, rz);
+    camera.lookAt(COLS*CS/2,0.8,ROWS*CS/2);
+  } else if(viewMode===1){
+    // Wide pullback
+    const a=tick*0.003, rd=26;
+    camera.position.set(COLS*CS/2+Math.cos(a)*rd,15,ROWS*CS/2+Math.sin(a)*rd);
+    camera.lookAt(COLS*CS/2,0.5,ROWS*CS/2);
+  } else if(viewMode===2){
+    // Follow drone close
+    const bk=new THREE.Vector3(-Math.sin(drone.rotation.y)*3.5,3,-Math.cos(drone.rotation.y)*3.5);
+    camera.position.set(drone.position.x+bk.x,drone.position.y+bk.y,drone.position.z+bk.z);
+    camera.lookAt(drone.position.x,drone.position.y-0.2,drone.position.z);
+  } else {
+    // Top down
+    camera.position.set(COLS*CS/2,26,ROWS*CS/2+1);
+    camera.lookAt(COLS*CS/2,0,ROWS*CS/2);
+  }
+
+  renderer.render(scene,camera);
+})();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+})();
+</script>
+</body>
+</html>

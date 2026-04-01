@@ -101,6 +101,8 @@ Automatically reads the `logs/` directory TensorBoard events and generates visua
 ## Project Structure
 ```text
 CropCare-drone-agent/
+├── design/                    # Interactive mockup explaining the intended 3D design
+│   └── AfAlm_Drone_Treatment_3d.html
 ├── environment/
 │   ├── custom_env.py          # Custom Gymnasium environment logic
 │   └── rendering.py           # High-fidelity isometric Pygame visualization
